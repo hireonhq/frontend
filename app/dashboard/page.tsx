@@ -167,6 +167,11 @@ export default function DashboardPage() {
   const pagination = useJobsStore((state) => state.pagination);
   const loading = useJobsStore((state) => state.loading);
   const uploadCV = useProfileStore((state) => state.uploadCV);
+  const initAuth = useAuthStore((s) => s.init);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   useEffect(() => {
     fetchJobsList({

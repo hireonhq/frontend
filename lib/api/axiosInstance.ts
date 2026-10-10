@@ -1,21 +1,24 @@
 import axios from "axios";
-function getToken() {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("token");
-  }
-  return null;
-}
+import { getSupabase, getAuthReady } from "@/lib/supabase";
 
 const axiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
 });
 
 axiosInstance.interceptors.request.use(
-  (config) => {
-    const token = getToken();
-    if (token) {
-      config.headers = config.headers || {};
-      config.headers["Authorization"] = `Bearer ${token}`;
+  async (config) => {
+    // Wait for the initial session load so requests fired on mount (e.g. after
+    // the OAuth redirect to /dashboard) don't go out unauthenticated.
+    await getAuthReady();
+
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) {
+        config.headers = config.headers || {};
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
     }
     return config;
   },
@@ -24,13 +27,15 @@ axiosInstance.interceptors.request.use(
 
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const hadAuthHeader = Boolean(error.config?.headers?.Authorization);
     if (
       typeof window !== "undefined" &&
+      hadAuthHeader &&
       error.response &&
       (error.response.status === 401 || error.response.status === 403)
     ) {
-      localStorage.removeItem("token");
+      await getSupabase()?.auth.signOut();
     }
     return Promise.reject(error);
   }

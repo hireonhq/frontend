@@ -1,88 +1,83 @@
 import { create } from "zustand";
+import type { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
-import {
-  loginApi,
-  registerApi,
-  User,
-  RegisterParams,
-  forgotPasswordApi,
-  activateApi,
-  resetPasswordApi,
-} from "../lib/api/auth";
+import { getSupabase, getAuthReady } from "../lib/supabase";
 
 interface AuthState {
-  setToken: (token: string) => void;
-  login: (
-    username: string,
-    password: string
+  session: Session | null;
+  user: SupabaseUser | null;
+  loading: boolean;
+  init: () => Promise<void>;
+  sendMagicLink: (
+    email: string,
+    redirectTo?: string
   ) => Promise<{ success: boolean; message: string }>;
-  logout: () => void;
-  register: (
-    params: RegisterParams
-  ) => Promise<{ success: boolean; message: string }>;
-  forgotPassword: (
-    email: string
-  ) => Promise<{ success: boolean; message: string }>;
-  activate: (email: string) => Promise<{ success: boolean; message: string }>;
-  resetPassword: (
-    token: string,
-    newPassword: string
-  ) => Promise<{ success: boolean; message: string }>;
+  logout: () => Promise<void>;
 }
 
+let subscribing = false;
+
 export const useAuthStore = create<AuthState>((set) => ({
-  setToken: (token: string) => {
-    localStorage.setItem("token", token);
-  },
-  login: async (username, password) => {
-    const res = await loginApi(username, password);
-    if (res.success) {
-      localStorage.setItem("token", res.data.token);
-      return { success: true, message: res.message };
-    } else {
-      return { success: false, message: res.message || "Login failed." };
+  session: null,
+  user: null,
+  loading: true,
+
+  init: async () => {
+    const supabase = getSupabase();
+    if (!supabase) {
+      set({ loading: false });
+      return;
+    }
+
+    await getAuthReady();
+    const { data } = await supabase.auth.getSession();
+    set({
+      session: data.session,
+      user: data.session?.user ?? null,
+      loading: false,
+    });
+
+    // Register the listener only once, no matter how many pages call init().
+    if (!subscribing) {
+      subscribing = true;
+      supabase.auth.onAuthStateChange((_event, session) => {
+        set({ session, user: session?.user ?? null, loading: false });
+      });
     }
   },
-  logout: () => localStorage.removeItem("token"),
-  register: async (params: RegisterParams) => {
-    const res = await registerApi(params);
-    if (res.success) {
-      return { success: true, message: res.message };
-    } else {
-      return { success: false, message: res.message || "Register failed." };
-    }
-  },
-  forgotPassword: async (email: string) => {
-    const res = await forgotPasswordApi(email);
-    if (res.success) {
-      return { success: true, message: res.message };
-    } else {
+
+  sendMagicLink: async (email, redirectTo) => {
+    const supabase = getSupabase();
+    if (!supabase) {
       return {
         success: false,
-        message: res.message || "Forgot password failed.",
+        message:
+          "Supabase belum dikonfigurasi. Isi NEXT_PUBLIC_SUPABASE_URL dan NEXT_PUBLIC_SUPABASE_ANON_KEY.",
       };
     }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        // Magic link doubles as signup: first-time emails create the account.
+        shouldCreateUser: true,
+        emailRedirectTo:
+          redirectTo ||
+          (typeof window !== "undefined"
+            ? `${window.location.origin}/dashboard`
+            : undefined),
+      },
+    });
+
+    if (error) return { success: false, message: error.message };
+    return {
+      success: true,
+      message: "Link masuk sudah dikirim. Cek email kamu.",
+    };
   },
-  activate: async (email: string) => {
-    const res = await activateApi(email);
-    if (res.success) {
-      return { success: true, message: res.message };
-    } else {
-      return {
-        success: false,
-        message: res.message || "Forgot password failed.",
-      };
-    }
-  },
-  resetPassword: async (token: string, newPassword: string) => {
-    const res = await resetPasswordApi(token, newPassword);
-    if (res.success) {
-      return { success: true, message: res.message };
-    } else {
-      return {
-        success: false,
-        message: res.message || "Reset password failed.",
-      };
-    }
+
+  logout: async () => {
+    await getSupabase()?.auth.signOut();
+    set({ session: null, user: null });
   },
 }));
