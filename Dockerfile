@@ -1,25 +1,22 @@
 # Use specific node version for reproducibility
 FROM node:18-alpine AS base
 
-# Enable corepack for pnpm (more efficient than npm install -g)
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
 # Dependencies stage
 FROM base AS deps
 WORKDIR /app
 
-# Copy package files (pnpm uses pnpm-lock.yaml)
-COPY package.json pnpm-lock.yaml* ./
+# Copy package files
+COPY package.json package-lock.json ./
 
 # Install production dependencies only
-RUN pnpm install --prod --frozen-lockfile
+RUN npm ci --omit=dev --legacy-peer-deps
 
 # Builder stage
 FROM base AS builder
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -27,7 +24,7 @@ COPY . .
 # Build Next.js app
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm run build
+RUN npm run build
 
 # Production runner stage
 FROM base AS runner
@@ -35,6 +32,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Docker sets HOSTNAME=<container-id>, which makes Next standalone bind to that
+# IP only; force 0.0.0.0 so the healthcheck and proxies can reach it.
+ENV HOSTNAME=0.0.0.0
 
 # Add labels for metadata
 LABEL maintainer="hireon-team@example.com"
@@ -56,7 +56,7 @@ EXPOSE 3000
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://127.0.0.1:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Use standalone output for minimal image
 CMD ["node", "server.js"]
