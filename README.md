@@ -36,10 +36,10 @@ This is the frontend client for the HireonAI platform. It is a modern, responsiv
 
 ```bash
 # Clone the repo
-git clone https://github.com/hireonai/frontend-hireonai.git
+git clone https://github.com/hireonhq/frontend.git
 
 # Navigate into the project directory
-cd frontend-hireonai
+cd frontend
 
 # Install dependencies
 npm install
@@ -112,7 +112,7 @@ Open http://localhost:3000 (or your configured port) with your browser to see th
 ## 🧑‍💻 Author
 
 Developed by **HireOn.AI Team**  
-[GitHub](https://github.com/hireonai)
+[GitHub](https://github.com/hireonhq)
 
 ---
 
@@ -120,7 +120,7 @@ Developed by **HireOn.AI Team**
 
 If you encounter any bugs or have feature requests, please open an issue at:
 
-[https://github.com/hireonai/frontend-hireonai/issues](https://github.com/hireonai/frontend-hireonai/issues)
+[https://github.com/hireonhq/frontend/issues](https://github.com/hireonhq/frontend/issues)
 
 ---
 
