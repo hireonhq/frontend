@@ -1,0 +1,99 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Build the image on GitHub's runners, publish to GHCR, and stop there.
+# Deployment stays out of this workflow on purpose: the VPS is only reachable
+# over a private network, so a runner cannot SSH to it. Pulling and restarting
+# happens on the VPS itself.
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # required to push to GHCR with GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Skip the push on pull_request: forks get no write token, and an
+      # unreviewed commit should not publish an image.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # NEXT_PUBLIC_* values are inlined into the client bundle here, so they
+      # must exist at build time. They are public by definition: read them from
+      # repository Variables, not Secrets.
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      # Fail the build if the image starts but the app does not answer. Catches
+      # a broken standalone output before any VPS pulls it. The check runs
+      # inside the container so it cannot collide with a busy host port.
+      - name: Smoke test image
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -eu
+          IMAGE="$(printf '%s\n' "$TAGS" | head -1)"
+          docker run -d --name smoke "$IMAGE"
+          docker exec smoke node -e '
+            const url = "http://127.0.0.1:3000/api/health";
+            const deadline = Date.now() + 30000;
+            (async () => {
+              while (Date.now() < deadline) {
+                try {
+                  const r = await fetch(url);
+                  if (r.ok) { console.log("healthy"); process.exit(0); }
+                } catch {}
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+              console.error("image never became healthy");
+              process.exit(1);
+            })();
+          '
+
+      - name: Smoke test logs
+        if: always() && github.event_name != 'pull_request'
+        run: docker logs smoke 2>&1 | tail -20 || true
