@@ -12,11 +12,11 @@ pnpm-debug.log*
 .dockerignore
 Dockerfile
 .DS_Store
-.env*.local
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Never ship env files into the image. Next copies .env into the standalone
+# output, which would otherwise bake local/dev values into the runtime image.
+.env
+.env.*
+!.env.example
 dist
 coverage
 .turbo 
