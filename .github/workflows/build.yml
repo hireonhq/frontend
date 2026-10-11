@@ -79,7 +79,7 @@ jobs:
           IMAGE="$(printf '%s\n' "$TAGS" | head -1)"
           docker run -d --name smoke "$IMAGE"
           docker exec smoke node -e '
-            const url = "http://127.0.0.1:3000/api/health";
+            const url = "http://127.0.0.1:3000/healthz";
             const deadline = Date.now() + 30000;
             (async () => {
               while (Date.now() < deadline) {
